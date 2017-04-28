@@ -43,7 +43,7 @@ public class Server {
         }, 10, 10, TimeUnit.SECONDS);
     }
 
-    public void start() {
+    public void start(int port) {
         serverBootstrap = new ServerBootstrap();
         serverBootstrap.group(boss, workers)
             .channel(NioServerSocketChannel.class)
@@ -103,7 +103,7 @@ public class Server {
             });
 
         try {
-            ChannelFuture future = serverBootstrap.bind(1234).sync();
+            ChannelFuture future = serverBootstrap.bind(port).sync();
             System.out.println("Server starts OK");
             future.channel().closeFuture().sync();
         } catch (InterruptedException e) {
@@ -116,7 +116,10 @@ public class Server {
     }
 
     public static void main(String[] args) {
-        new Server().start();
+        if (args.length < 1) {
+            System.out.println("command port");
+        }
+        new Server().start(Integer.parseInt(args[0]));
     }
 
 
