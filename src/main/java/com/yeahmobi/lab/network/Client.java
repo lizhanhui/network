@@ -1,19 +1,22 @@
 package com.yeahmobi.lab.network;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 public class Client {
@@ -23,6 +26,14 @@ public class Client {
     private static final int BUF_2M = 2 * 1024 * 1024;
     private static final int BUF_8M = 8 * 1024 * 1024;
     private static final int BUF_16M = 16 * 1024 * 1024;
+
+    public static ByteBuf data;
+
+    static {
+        byte[] randomData = new byte[1024 * 1024 * 4];
+        Arrays.fill(randomData, (byte)'x');
+        data = Unpooled.wrappedBuffer(randomData);
+    }
 
     private volatile boolean started;
 
@@ -46,22 +57,7 @@ public class Client {
             .handler(new ChannelInitializer<SocketChannel>() {
                 protected void initChannel(SocketChannel channel) throws Exception {
                     ChannelPipeline pipeline = channel.pipeline();
-                    pipeline.addLast(new ChannelInboundHandlerAdapter() {
-                        @Override public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                            ctx.write(msg);
-                        }
-
-                        @Override public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-                            super.channelReadComplete(ctx);
-                            ctx.flush();
-                        }
-
-                        @Override
-                        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                            super.exceptionCaught(ctx, cause);
-                            ctx.close();
-                        }
-                    });
+                    pipeline.addLast(new StressChannelHandler());
                 }
             });
 
@@ -93,5 +89,40 @@ public class Client {
 
     public static void main(String[] args) {
         new Client().connect();
+    }
+
+    static class StressChannelHandler extends SimpleChannelInboundHandler<ByteBuf> {
+
+        public StressChannelHandler() {
+            super(false);
+        }
+
+        @Override public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+            super.channelActive(ctx);
+            System.out.println("Initiate writing");
+            ctx.writeAndFlush(data.slice()).addListener(new ChannelFutureListener() {
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (!future.isSuccess()) {
+                        System.out.println("Closing connection");
+                        ctx.close();
+                    }
+                }
+            });
+        }
+
+        protected void channelRead0(ChannelHandlerContext context, ByteBuf buf) throws Exception {
+            context.writeAndFlush(buf).addListener(new ChannelFutureListener() {
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (!future.isSuccess()) {
+                        System.out.println("Closing connection");
+                        future.channel().close();
+                    }
+                }
+            });
+        }
+
+        @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            ctx.close();
+        }
     }
 }
