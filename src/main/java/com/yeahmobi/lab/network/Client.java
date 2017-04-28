@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -26,7 +27,7 @@ public class Client {
     private static final int BUF_2M = 2 * 1024 * 1024;
     private static final int BUF_8M = 8 * 1024 * 1024;
     private static final int BUF_16M = 16 * 1024 * 1024;
-
+    private volatile boolean active;
     public static ByteBuf data;
 
     static {
@@ -42,6 +43,13 @@ public class Client {
         bootstrap = new Bootstrap();
     }
 
+    public void stop() {
+        if (active) {
+            active = false;
+            workers.shutdownGracefully();
+        }
+    }
+
     public void start() {
         if (started) {
             return;
@@ -54,17 +62,18 @@ public class Client {
             .option(ChannelOption.RCVBUF_ALLOCATOR,
                 new AdaptiveRecvByteBufAllocator(BUF_2M, BUF_8M, BUF_16M))
             .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
+            .option(ChannelOption.SO_SNDBUF, 16 * 1024 * 1024)
             .handler(new ChannelInitializer<SocketChannel>() {
                 protected void initChannel(SocketChannel channel) throws Exception {
                     ChannelPipeline pipeline = channel.pipeline();
-                    pipeline.addLast(new StressChannelHandler());
+                    pipeline.addLast(new StressChannelHandler(Client.this));
                 }
             });
 
         started = true;
     }
 
-    public void connect() {
+    public Channel connect() {
         if (!started) {
             start();
         }
@@ -81,48 +90,53 @@ public class Client {
         try {
             if (!future.sync().await(10, TimeUnit.SECONDS)) {
                 future.channel().close();
+                return null;
             }
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            return null;
         }
+
+        return future.channel();
+    }
+
+    public boolean isActive() {
+        return active;
     }
 
     public static void main(String[] args) {
-        new Client().connect();
+        Client client = new Client();
+        Channel channel = client.connect();
+        while (channel.isActive()) {
+            if (channel.isWritable()) {
+                channel.writeAndFlush(data);
+            } else {
+                try {
+                    Thread.sleep(0);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     static class StressChannelHandler extends SimpleChannelInboundHandler<ByteBuf> {
-
-        public StressChannelHandler() {
+        private final Client client;
+        public StressChannelHandler(final Client client) {
             super(false);
+            this.client = client;
         }
 
         @Override public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-            super.channelActive(ctx);
-            System.out.println("Initiate writing");
-            ctx.writeAndFlush(data.slice()).addListener(new ChannelFutureListener() {
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    if (!future.isSuccess()) {
-                        System.out.println("Closing connection");
-                        ctx.close();
-                    }
-                }
-            });
+            System.out.println("Channel active");
         }
 
         protected void channelRead0(ChannelHandlerContext context, ByteBuf buf) throws Exception {
-            context.writeAndFlush(buf).addListener(new ChannelFutureListener() {
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    if (!future.isSuccess()) {
-                        System.out.println("Closing connection");
-                        future.channel().close();
-                    }
-                }
-            });
+
         }
 
         @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             ctx.close();
+            client.stop();
         }
     }
 }
