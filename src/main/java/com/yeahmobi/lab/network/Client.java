@@ -69,7 +69,7 @@ public class Client {
             start();
         }
 
-        ChannelFuture future =  bootstrap.connect("172.30.30.68", 1234);
+        ChannelFuture future =  bootstrap.connect("172.30.30.125", 1234);
         future.addListener(new ChannelFutureListener() {
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
