@@ -42,7 +42,7 @@ public class Client {
         bootstrap = new Bootstrap();
     }
 
-    public void start() {
+    public void start(int sendBufferSize) {
         if (started) {
             return;
         }
@@ -54,7 +54,7 @@ public class Client {
             .option(ChannelOption.RCVBUF_ALLOCATOR,
                 new AdaptiveRecvByteBufAllocator(BUF_2M, BUF_8M, BUF_16M))
             .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
-            .option(ChannelOption.SO_SNDBUF, 16 * 1024 * 1024)
+            .option(ChannelOption.SO_SNDBUF, sendBufferSize > 0 ? sendBufferSize : 16 * 1024 * 1024)
             .handler(new ChannelInitializer<SocketChannel>() {
                 protected void initChannel(SocketChannel channel) throws Exception {
                     ChannelPipeline pipeline = channel.pipeline();
@@ -65,12 +65,12 @@ public class Client {
         started = true;
     }
 
-    public Channel connect() {
+    public Channel connect(int sendBufferSize, String ip) {
         if (!started) {
-            start();
+            start(sendBufferSize);
         }
 
-        ChannelFuture future =  bootstrap.connect("172.30.30.68", 1234);
+        ChannelFuture future =  bootstrap.connect(ip, 1234);
         future.addListener(new ChannelFutureListener() {
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
@@ -132,8 +132,14 @@ public class Client {
     }
 
     public static void main(String[] args) {
+
+        if (args.length < 2) {
+            System.out.println("command sndBuf IP");
+            return;
+        }
+
         Client client = new Client();
-        Channel channel = client.connect();
+        Channel channel = client.connect(Integer.parseInt(args[0]), args[1]);
         while (channel.isActive()) {
             try {
                 if (channel.isWritable()) {
