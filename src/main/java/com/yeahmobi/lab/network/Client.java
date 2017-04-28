@@ -70,7 +70,7 @@ public class Client {
             start(sendBufferSize);
         }
 
-        ChannelFuture future =  bootstrap.connect(ip, 1234);
+        ChannelFuture future =  bootstrap.connect(ip, 10911);
         future.addListener(new ChannelFutureListener() {
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
