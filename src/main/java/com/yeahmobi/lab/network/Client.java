@@ -9,11 +9,11 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -27,7 +27,6 @@ public class Client {
     private static final int BUF_2M = 2 * 1024 * 1024;
     private static final int BUF_8M = 8 * 1024 * 1024;
     private static final int BUF_16M = 16 * 1024 * 1024;
-    private volatile boolean active;
     public static ByteBuf data;
 
     static {
@@ -41,13 +40,6 @@ public class Client {
     public Client() {
         workers = new NioEventLoopGroup();
         bootstrap = new Bootstrap();
-    }
-
-    public void stop() {
-        if (active) {
-            active = false;
-            workers.shutdownGracefully();
-        }
     }
 
     public void start() {
@@ -66,7 +58,7 @@ public class Client {
             .handler(new ChannelInitializer<SocketChannel>() {
                 protected void initChannel(SocketChannel channel) throws Exception {
                     ChannelPipeline pipeline = channel.pipeline();
-                    pipeline.addLast(new StressChannelHandler(Client.this));
+                    pipeline.addLast(new TestChannelHandler());
                 }
             });
 
@@ -78,7 +70,7 @@ public class Client {
             start();
         }
 
-        ChannelFuture future =  bootstrap.connect("172.30.30.125", 1234);
+        ChannelFuture future =  bootstrap.connect("172.30.30.68", 1234);
         future.addListener(new ChannelFutureListener() {
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
@@ -99,44 +91,59 @@ public class Client {
         return future.channel();
     }
 
-    public boolean isActive() {
-        return active;
+    static class TestChannelHandler extends ChannelInboundHandlerAdapter {
+        @Override public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("Channel active");
+        }
+
+        @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            ctx.close();
+            cause.printStackTrace();
+            System.out.println("Channel closed");
+        }
+
+        @Override public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("Channel inactive");
+        }
+
+        @Override public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+            System.out.println("Event: " + evt);
+        }
+
+        @Override public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("Channel registered");
+        }
+
+        @Override public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("Channel unregistered");
+        }
+
+        @Override public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            System.out.println("channel read");
+        }
+
+        @Override public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("channel read complete");
+        }
+
+        @Override public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+
+        }
     }
 
     public static void main(String[] args) {
         Client client = new Client();
         Channel channel = client.connect();
         while (channel.isActive()) {
-            if (channel.isWritable()) {
-                channel.writeAndFlush(data);
-            } else {
-                try {
+            try {
+                if (channel.isWritable()) {
+                    channel.writeAndFlush(data.slice().retain());
+                } else {
                     Thread.sleep(0);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
                 }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-        }
-    }
-
-    static class StressChannelHandler extends SimpleChannelInboundHandler<ByteBuf> {
-        private final Client client;
-        public StressChannelHandler(final Client client) {
-            super(false);
-            this.client = client;
-        }
-
-        @Override public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-            System.out.println("Channel active");
-        }
-
-        protected void channelRead0(ChannelHandlerContext context, ByteBuf buf) throws Exception {
-
-        }
-
-        @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-            ctx.close();
-            client.stop();
         }
     }
 }

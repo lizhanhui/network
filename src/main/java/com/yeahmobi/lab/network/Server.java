@@ -15,6 +15,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.ReferenceCountUtil;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,9 +38,9 @@ public class Server {
         scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             public void run() {
                 long bytes = receivedBytes.getAndSet(0);
-                System.out.println((bytes >> 20) / 30  + " MB/s");
+                System.out.println((bytes >> 20) / 10  + " MB/s");
             }
-        }, 30, 30, TimeUnit.SECONDS);
+        }, 10, 10, TimeUnit.SECONDS);
     }
 
     public void start() {
@@ -60,15 +61,42 @@ public class Server {
                             if (msg instanceof ByteBuf) {
                                 receivedBytes.addAndGet(((ByteBuf) msg).readableBytes());
                             }
+
+                            ReferenceCountUtil.release(msg);
                         }
 
                         @Override public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-                            super.channelReadComplete(ctx);
                         }
 
                         @Override
                         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
                             ctx.close();
+                            cause.printStackTrace();
+                        }
+
+                        @Override public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                            System.out.println("Channel inactive");
+                        }
+
+                        @Override public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                            System.out.println("Channel active");
+                        }
+
+                        @Override public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+                            System.out.println("Channel registered");
+                        }
+
+                        @Override public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+                            System.out.println("Channel unregistered");
+                        }
+
+                        @Override
+                        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                            System.out.println("Event: " + evt);
+                        }
+
+                        @Override public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+                            System.out.println("Channel writable state changed");
                         }
                     });
                 }
@@ -83,6 +111,7 @@ public class Server {
         } finally {
             boss.shutdownGracefully();
             workers.shutdownGracefully();
+            scheduledExecutorService.shutdown();
         }
     }
 
